@@ -16,9 +16,6 @@ logger = logging.getLogger(__name__)
 TRAIN_CSV = "train.csv"
 DEV_CSV = "dev.csv"
 TEST_CSV = "test.csv"
-TRAIN_CLEAN_CSV = "train-clean.csv"
-DEV_CLEAN_CSV = "dev-clean.csv"
-TEST_CLEAN_CSV = "test-clean.csv"
 SAMPLERATE = 16000
 
 
@@ -49,9 +46,6 @@ def prepare_cslu(
     save_csv_train = os.path.join(save_folder, TRAIN_CSV)
     save_csv_dev = os.path.join(save_folder, DEV_CSV)
     save_csv_test = os.path.join(save_folder, TEST_CSV)
-    save_csv_train_clean = os.path.join(save_folder, TRAIN_CLEAN_CSV)
-    save_csv_dev_clean = os.path.join(save_folder, DEV_CLEAN_CSV)
-    save_csv_test_clean = os.path.join(save_folder, TEST_CLEAN_CSV)
 
     # Check if this phase is already done (if so, skip it)
     if skip(save_folder):
@@ -86,20 +80,9 @@ def prepare_cslu(
     id2verify = load_id2verify_map(data_folder, grade_list)
 
     # Create csv with all files
-    create_csv(wav_lst_train, save_csv_train, id2chars, id2verify, clean=False)
-    create_csv(wav_lst_dev, save_csv_dev, id2chars, id2verify, clean=False)
-    create_csv(wav_lst_test, save_csv_test, id2chars, id2verify, clean=False)
-
-    # Create csv with only clean files
-    create_csv(
-        wav_lst_train, save_csv_train_clean, id2chars, id2verify, clean=True
-    )
-    create_csv(
-        wav_lst_dev, save_csv_dev_clean, id2chars, id2verify, clean=True
-    )
-    create_csv(
-        wav_lst_test, save_csv_test_clean, id2chars, id2verify, clean=True
-    )
+    create_csv(wav_lst_train, save_csv_train, id2chars, id2verify)
+    create_csv(wav_lst_dev, save_csv_dev, id2chars, id2verify)
+    create_csv(wav_lst_test, save_csv_test, id2chars, id2verify)
 
 def skip(save_folder):
     """
@@ -115,9 +98,7 @@ def skip(save_folder):
     # Checking csv files
     skip = True
 
-    csvs = [TRAIN_CSV, DEV_CSV, TEST_CSV]
-    csvs.extend([TRAIN_CLEAN_CSV, DEV_CLEAN_CSV, TEST_CLEAN_CSV])
-    for csv in csvs:
+    for csv in [TRAIN_CSV, DEV_CSV, TEST_CSV]:
         if not os.path.isfile(os.path.join(save_folder, csv)):
             skip = False
 
@@ -161,7 +142,7 @@ def load_id2verify_map(data_folder, grades):
 
     return id2verify
 
-def create_csv(wav_lst, csv_file, id2chars, id2verify, clean):
+def create_csv(wav_lst, csv_file, id2chars, id2verify):
     """
     Creates the csv file given a list of wav files.
 
@@ -175,8 +156,6 @@ def create_csv(wav_lst, csv_file, id2chars, id2verify, clean):
         A mapping from word id to characters
     id2verify : dict
         A mapping from utterance id to verify label
-    clean : bool
-        Whether or not to only include clean utterances
     """
 
     # Adding some Prints
@@ -193,11 +172,11 @@ def create_csv(wav_lst, csv_file, id2chars, id2verify, clean):
             "char",
             "char_format",
             "char_opts",
+            "verify",
+            "verify_format",
+            "verify_opts",
         ]
     ]
-
-    if not clean:
-        csv_lines[0].extend(["verify", "verify_format", "verify_opts"])
 
     # Processing all the wav files in the list
     for wav_file in wav_lst:
@@ -217,11 +196,11 @@ def create_csv(wav_lst, csv_file, id2chars, id2verify, clean):
         ]
 
         # Verify = 0 means there is no label for this example
-        verify = "0" if snt_id not in id2verify else id2verify[snt_id]
-        if not clean:
-            csv_line.extend([verify, "string", "label:False"])
-            csv_lines.append(csv_line)
-        elif verify == "1":
+        #verify = "0" if snt_id not in id2verify else id2verify[snt_id]
+        if snt_id not in id2verify:
+            continue
+        else:
+            csv_line.extend([id2verify[snt_id], "string", "label:False"])
             csv_lines.append(csv_line)
 
     # Writing the csv lines

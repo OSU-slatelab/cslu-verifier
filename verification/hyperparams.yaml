@@ -5,7 +5,7 @@
 # ################################
 
 # Seed needs to be set at top of yaml, before objects with parameters are made
-seed: 1235
+seed: 1236
 __set_seed: !!python/object/apply:torch.manual_seed [!ref <seed>]
 output_folder: !ref results/verifier/<seed>
 cer_file: !ref <output_folder>/cer.txt
@@ -13,30 +13,27 @@ save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 
 # Data files
-data_folder: /scratch/tmp/plantingap/CSLU_kids
-csv_train: !ref <data_folder>/train-clean.csv
+data_folder: !PLACEHOLDER
+csv_train: !ref <data_folder>/train.csv
 csv_valid: !ref <data_folder>/dev.csv
 csv_test: !ref <data_folder>/test.csv
-
-# Config options
 # print_id: ksd062p0
-simple_verify_alg: True
 
 # Training parameters
-number_of_epochs: 48
+number_of_epochs: 50
 batch_size: 8
 lr: 1.0
-device: 'cuda:1'
+device: 'cuda:0'
 ctc_weight: 1.0
 align_weight: 0.0
-verify_weight: 0.0
+verify_weight: 1.0
 
 # Feature parameters
 sample_rate: 16000
 n_fft: 400
 n_mels: 40
 
-# Model parameters
+# recognizer model parameters
 activation: !name:torch.nn.LeakyReLU
 dropout: 0.15
 cnn_blocks: 2
@@ -47,10 +44,12 @@ rnn_neurons: 512
 rnn_bidirectional: True
 dnn_blocks: 2
 dnn_neurons: 512
-
-# Outputs
 output_neurons: 39
 blank_index: !ref <output_neurons> - 1
+
+# verifier model parameters
+verifier_units: 256
+verifier_layers: 2
 
 epoch_counter: !new:speechbrain.EpochCounter
     limit: !ref <number_of_epochs>
@@ -60,7 +59,7 @@ train_loader: !new:speechbrain.data_io.DataLoaderFactory
     batch_size: !ref <batch_size>
     sentence_sorting: ascending
     output_folder: !ref <output_folder>
-    csv_read: [wav, char]
+    csv_read: [wav, char, verify]
     avoid_if_longer_than: 7.5
 
 valid_loader: !new:speechbrain.data_io.DataLoaderFactory
@@ -77,8 +76,7 @@ test_loader: !new:speechbrain.data_io.DataLoaderFactory
     output_folder: !ref <output_folder>
     csv_read: [wav, char, verify]
 
-normalize: !new:speechbrain.nnet.LayerNorm
-    input_shape: [null, null, !ref <n_mels>]
+normalize: !new:speechbrain.processing.InputNormalization
 
 augmentation: !new:speechbrain.lobes.TimeDomainSpecAugment
     sample_rate: !ref <sample_rate>
@@ -89,7 +87,7 @@ compute_features: !new:speechbrain.lobes.Fbank
     n_fft: !ref <n_fft>
     n_mels: !ref <n_mels>
 
-model: !new:speechbrain.lobes.CRDNN
+recognizer: !new:speechbrain.lobes.CRDNN
     input_shape: [null, null, !ref <n_mels>]
     activation: !ref <activation>
     dropout: !ref <dropout>
@@ -105,7 +103,7 @@ model: !new:speechbrain.lobes.CRDNN
     dnn_blocks: !ref <dnn_blocks>
     dnn_neurons: !ref <dnn_neurons>
 
-output: !new:speechbrain.nnet.Linear
+recognizer_output: !new:speechbrain.nnet.Linear
     input_size: !ref <dnn_neurons>
     n_neurons: !ref <output_neurons>
     bias: True
@@ -117,10 +115,16 @@ ctc_loss: !name:speechbrain.nnet.ctc_loss
     blank_index: !ref <blank_index>
 
 verifier: !new:verifier.Verifier
+    input_size: !ref <dnn_neurons>
+    rnn_size: !ref <verifier_units>
+    rnn_layers: !ref <verifier_layers>
+
+bce_loss: !name:speechbrain.nnet.BCE_loss
 
 modules:
-    model: !ref <model>
-    output: !ref <output>
+    recognizer: !ref <recognizer>
+    recognizer_output: !ref <recognizer_output>
+    verifier: !ref <verifier>
     normalize: !ref <normalize>
 
 opt_class: !name:torch.optim.Adadelta
@@ -137,8 +141,9 @@ lr_annealing: !new:speechbrain.nnet.NewBobScheduler
 checkpointer: !new:speechbrain.Checkpointer
     checkpoints_dir: !ref <save_folder>
     recoverables:
-        model: !ref <model>
-        output: !ref <output>
+        recognizer: !ref <recognizer>
+        recognizer_output: !ref <recognizer_output>
+        verifier: !ref <verifier>
         scheduler: !ref <lr_annealing>
         normalizer: !ref <normalize>
         counter: !ref <epoch_counter>

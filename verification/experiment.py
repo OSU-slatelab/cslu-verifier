@@ -23,14 +23,15 @@ class ASR(sb.core.Brain):
             wavs = self.hparams.augmentation(wavs, wav_lens)
 
         feats = self.hparams.compute_features(wavs)
-        feats = self.hparams.normalize(feats)
-        out = self.modules.model(feats)
+        feats = self.hparams.normalize(feats, wav_lens)
+        out = self.modules.recognizer(feats)
 
         # Verifier prediction
-        #verifier_prediction = self.modules.verifier(out)
-        
+        if self.hparams.verify_weight > 0:
+            prediction = self.modules.verifier(out)
+
         # CTC prediction
-        out = self.modules.output(out)
+        out = self.modules.recognizer_output(out)
         pout = self.hparams.log_softmax(out)
 
         # reshape feats (energies) to be same shape as pout
@@ -48,15 +49,21 @@ class ASR(sb.core.Brain):
                 self.hparams.ind2lab,
                 posterior,
                 pos_energy,
-                #xAxisRange=(20,120),
             )
             sys.exit()
 
-        return pout, wav_lens, out, energy #, verifier_prediction 
+        if self.hparams.verify_weight > 0:
+            return pout, wav_lens, out, energy, prediction
+        else:
+            return pout, wav_lens, out, energy
 
     def compute_objectives(self, predictions, targets, stage, verify=None):
-        #pout, pout_lens, out, energies, verifier_prediction = predictions
-        pout, pout_lens, out, energies = predictions
+
+        if self.hparams.verify_weight > 0:
+            pout, pout_lens, out, energies, prediction = predictions
+        else:
+            pout, pout_lens, out, energies = predictions
+
         ids, chars, char_lens = targets
         chars, char_lens = chars.to(self.device), char_lens.to(self.device)
         if verify is not None:
@@ -66,8 +73,8 @@ class ASR(sb.core.Brain):
         if stage == sb.Stage.TRAIN and hasattr(self.hparams, "env_corrupt"):
             chars = torch.cat([chars, chars], dim=0)
             char_lens = torch.cat([char_lens, char_lens], dim=0)
-        
-        if stage != sb.Stage.TRAIN or self.hparams.simple_verify_alg:
+
+        if stage != sb.Stage.TRAIN:
             sequence = sb.decoders.ctc_greedy_decode(pout, pout_lens)
             self.cer_metrics.append(
                 ids, sequence, chars, None, char_lens, self.hparams.ind2lab
@@ -80,25 +87,26 @@ class ASR(sb.core.Brain):
             clean_lens = char_lens[clean_samples]
             clean_ids = [ids[i] for i, s in enumerate(clean_samples) if s]
             self.clean_cer_metrics.append(
-                clean_ids, clean_seq, clean_chars, None, clean_lens, self.hparams.ind2lab
+                clean_ids,
+                clean_seq,
+                clean_chars,
+                target_len=clean_lens,
+                ind2lab=self.hparams.ind2lab
             )
-            
-        # Generate verify predictions and labels
-        if self.hparams.simple_verify_alg:
-            # Generate reading verification prediction (> 1 error)
-            scores = self.cer_metrics.scores[-len(ids):]
-            errs = torch.tensor([s["num_edits"] for s in scores])
-            prediction = (errs > 2).int()
 
-        if stage != sb.Stage.TRAIN or self.hparams.verify_weight > 0:
+        if self.hparams.verify_weight > 0:
             # Exclude sentences that don't have a verify label
-            hasverify = verify != 0
-            ids = [ids[i] for i, h in enumerate(hasverify) if h]
-            prediction = prediction[hasverify]
+            #hasverify = verify != 0
+            #ids = [ids[i] for i, h in enumerate(hasverify) if h]
+            #prediction = prediction[hasverify]
 
             # Verify score of 1 are pronounced correctly, otherwise not
-            label = (verify[hasverify] != 1).int()
-            self.verify_metrics.append(ids, prediction, label)
+            #label = (verify[hasverify] != 1).int().to(self.device)
+            label = (verify != 1).int().to(self.device)
+            label = label.unsqueeze(1)
+
+            if stage != sb.Stage.TRAIN:
+                self.verify_metrics.append(ids, prediction, label)
 
         # Compute each loss if requested
         loss = 0
@@ -116,7 +124,7 @@ class ASR(sb.core.Brain):
             loss += self.hparams.verify_weight * verify_loss
 
         return loss
-    
+
     def alignment_loss(self, prediction, energies, length, blank_idx=-1):
         abs_length = sb.data_io.relative_time_to_absolute(energies, length, 1)
         avg_energies = energies.sum(dim=1, keepdim=True)
@@ -136,6 +144,15 @@ class ASR(sb.core.Brain):
 
         return sb.nnet.compute_masked_loss(loss_fn, prediction, factor, length)
 
+    def fit_batch(self, batch):
+        inputs, targets, verify = batch
+        out = self.compute_forward(inputs, sb.Stage.TRAIN)
+        loss = self.compute_objectives(out, targets, sb.Stage.TRAIN, verify)
+        loss.backward()
+        self.optimizer.step()
+        self.optimizer.zero_grad()
+        return loss.detach().cpu()
+
     def evaluate_batch(self, batch, stage):
         inputs, targets, verify = batch
         out = self.compute_forward(inputs, stage)
@@ -146,7 +163,8 @@ class ASR(sb.core.Brain):
         if stage != sb.Stage.TRAIN:
             self.cer_metrics = self.hparams.cer_computer()
             self.clean_cer_metrics = self.hparams.cer_computer()
-            self.verify_metrics = self.hparams.verify_computer()
+            if self.hparams.verify_weight > 0:
+                self.verify_metrics = self.hparams.verify_computer()
 
     def on_stage_end(self, stage, stage_loss, epoch):
         if stage == sb.Stage.TRAIN:
@@ -154,8 +172,14 @@ class ASR(sb.core.Brain):
         else:
             cer = self.cer_metrics.summarize("error_rate")
             clean_cer = self.clean_cer_metrics.summarize("error_rate")
-            f1 = self.verify_metrics.summarize("F-score", threshold=0.5) * 100
-            stage_stats = {"loss": stage_loss, "CER": cer, "F1": f1, "CleanCER": clean_cer}
+            stage_stats = {
+                "loss": stage_loss,
+                "CER": cer,
+                "CleanCER": clean_cer,
+            }
+            if self.hparams.verify_weight > 0:
+                f1 = self.verify_metrics.summarize("F-score", threshold=0.5)
+                stage_stats["F1"] = f1 * 100
 
         if stage == sb.Stage.VALID:
             old_lr, new_lr = self.hparams.lr_annealing(cer)
@@ -164,7 +188,7 @@ class ASR(sb.core.Brain):
                 epoch_stats, {"loss": self.train_loss}, stage_stats
             )
             self.checkpointer.save_and_keep_only(
-                meta={"CER": cer}, min_keys=["CER"],
+                meta={"CleanCER": clean_cer}, min_keys=["CleanCER"],
             )
         elif stage == sb.Stage.TEST:
             self.hparams.train_logger.log_stats(
@@ -174,10 +198,11 @@ class ASR(sb.core.Brain):
             with open(self.hparams.cer_file, 'w') as w:
                 self.cer_metrics.write_stats(w)
 
+
 if __name__ == "__main__":
-    # This hack needed to import data preparation script from ../..
+    # This hack needed to import data preparation script from ..
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    sys.path.append(os.path.dirname(os.path.dirname(current_dir)))
+    sys.path.append(os.path.dirname(current_dir))
     from cslu_prepare import prepare_cslu  # noqa E402
 
     # Load hyperparameters file with command-line overrides
@@ -210,5 +235,6 @@ if __name__ == "__main__":
         checkpointer=hparams["checkpointer"],
         device=hparams["device"],
     )
-    asr_brain.fit(hparams["epoch_counter"], train_set, valid_set)
-    asr_brain.evaluate(hparams["test_loader"](), min_key="CER")
+    with torch.autograd.detect_anomaly():
+        asr_brain.fit(hparams["epoch_counter"], train_set, valid_set)
+    asr_brain.evaluate(hparams["test_loader"](), min_key="CleanCER")
