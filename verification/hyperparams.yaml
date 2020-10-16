@@ -48,8 +48,14 @@ output_neurons: 39
 blank_index: !ref <output_neurons> - 1
 
 # verifier model parameters
-verifier_units: 256
-verifier_layers: 2
+verifier_emb_size: 32
+verifier_rnn_size: 256
+verifier_rnn_layers: 2
+verifier_char_rnn_size: 256
+verifier_char_rnn_layers: 2
+verifier_dnn_size: 256
+verifier_dnn_layers: 2
+verifier_dropout: 0.1
 
 epoch_counter: !new:speechbrain.EpochCounter
     limit: !ref <number_of_epochs>
@@ -116,8 +122,17 @@ ctc_loss: !name:speechbrain.nnet.ctc_loss
 
 verifier: !new:verifier.Verifier
     input_size: !ref <dnn_neurons>
-    rnn_size: !ref <verifier_units>
-    rnn_layers: !ref <verifier_layers>
+    vocab_size: !ref <output_neurons>
+    emb_size: !ref <verifier_emb_size>
+    rnn_size: !ref <verifier_rnn_size>
+    rnn_layers: !ref <verifier_rnn_layers>
+    rnn_dropout: !ref <verifier_dropout>
+    char_rnn_size: !ref <verifier_char_rnn_size>
+    char_rnn_layers: !ref <verifier_char_rnn_layers>
+    char_rnn_dropout: !ref <verifier_dropout>
+    dnn_size: !ref <verifier_dnn_size>
+    dnn_layers: !ref <verifier_dnn_layers>
+    dnn_dropout: !ref <verifier_dropout>
 
 bce_loss: !name:speechbrain.nnet.BCE_loss
 

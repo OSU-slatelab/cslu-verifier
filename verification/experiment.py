@@ -8,9 +8,11 @@ from mkplts import print_posteriorgram
 
 # Define training procedure
 class ASR(sb.core.Brain):
-    def compute_forward(self, x, stage):
+    def compute_forward(self, x, chars, stage):
         ids, wavs, wav_lens = x
+        ids, chars, char_lens = chars
         wavs, wav_lens = wavs.to(self.device), wav_lens.to(self.device)
+        chars = chars.to(self.device)
 
         # Adding environmental corruption if specified (i.e., noise+rev)
         if hasattr(self.hparams, "env_corrupt") and stage == "train":
@@ -28,7 +30,7 @@ class ASR(sb.core.Brain):
 
         # Verifier prediction
         if self.hparams.verify_weight > 0:
-            prediction = self.modules.verifier(out)
+            prediction = self.modules.verifier(out, chars)
 
         # CTC prediction
         out = self.modules.recognizer_output(out)
@@ -57,7 +59,7 @@ class ASR(sb.core.Brain):
         else:
             return pout, wav_lens, out, energy
 
-    def compute_objectives(self, predictions, targets, stage, verify=None):
+    def compute_objectives(self, predictions, targets, verify, stage):
 
         if self.hparams.verify_weight > 0:
             pout, pout_lens, out, energies, prediction = predictions
@@ -95,13 +97,6 @@ class ASR(sb.core.Brain):
             )
 
         if self.hparams.verify_weight > 0:
-            # Exclude sentences that don't have a verify label
-            #hasverify = verify != 0
-            #ids = [ids[i] for i, h in enumerate(hasverify) if h]
-            #prediction = prediction[hasverify]
-
-            # Verify score of 1 are pronounced correctly, otherwise not
-            #label = (verify[hasverify] != 1).int().to(self.device)
             label = (verify != 1).int().to(self.device)
             label = label.unsqueeze(1)
 
@@ -146,8 +141,8 @@ class ASR(sb.core.Brain):
 
     def fit_batch(self, batch):
         inputs, targets, verify = batch
-        out = self.compute_forward(inputs, sb.Stage.TRAIN)
-        loss = self.compute_objectives(out, targets, sb.Stage.TRAIN, verify)
+        out = self.compute_forward(inputs, targets, sb.Stage.TRAIN)
+        loss = self.compute_objectives(out, targets, verify, sb.Stage.TRAIN)
         loss.backward()
         self.optimizer.step()
         self.optimizer.zero_grad()
@@ -155,8 +150,8 @@ class ASR(sb.core.Brain):
 
     def evaluate_batch(self, batch, stage):
         inputs, targets, verify = batch
-        out = self.compute_forward(inputs, stage)
-        loss = self.compute_objectives(out, targets, stage, verify)
+        out = self.compute_forward(inputs, targets, stage)
+        loss = self.compute_objectives(out, targets, verify, stage)
         return loss.detach().cpu()
 
     def on_stage_start(self, stage, epoch):
