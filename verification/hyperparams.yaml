@@ -5,9 +5,9 @@
 # ################################
 
 # Seed needs to be set at top of yaml, before objects with parameters are made
-seed: 1236
+seed: 1234
 __set_seed: !!python/object/apply:torch.manual_seed [!ref <seed>]
-output_folder: !ref results/verifier/<seed>
+output_folder: !ref results/asr/<seed>
 cer_file: !ref <output_folder>/cer.txt
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
@@ -21,12 +21,12 @@ csv_test: !ref <data_folder>/test.csv
 
 # Training parameters
 number_of_epochs: 50
-batch_size: 8
+batch_size: 16
 lr: 1.0
 device: 'cuda:0'
 ctc_weight: 1.0
 align_weight: 0.0
-verify_weight: 1.0
+verify_weight: 0.0
 
 # Feature parameters
 sample_rate: 16000
@@ -39,11 +39,11 @@ dropout: 0.15
 cnn_blocks: 2
 cnn_channels: (128, 256)
 cnn_kernelsize: (3, 3)
-rnn_layers: 4
-rnn_neurons: 512
+rnn_layers: 2
+rnn_neurons: 256
 rnn_bidirectional: True
 dnn_blocks: 2
-dnn_neurons: 512
+dnn_neurons: 128
 output_neurons: 39
 blank_index: !ref <output_neurons> - 1
 

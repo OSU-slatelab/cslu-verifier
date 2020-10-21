@@ -9,6 +9,7 @@ import os
 import re
 import csv
 import logging
+from glob import glob
 from speechbrain.utils.data_utils import get_all_files
 from speechbrain.data_io.data_io import read_wav_soundfile
 
@@ -22,8 +23,8 @@ SAMPLERATE = 16000
 def prepare_cslu(
     data_folder,
     save_folder,
-    dev_grades=["01"],
-    test_grades=["02"],
+    dev_frac=0.05,
+    test_frac=0.05,
 ):
     """
     Prepares the csv files for the CSLU dataset.
@@ -34,6 +35,10 @@ def prepare_cslu(
         Path to the folder where the original CSLU dataset is stored.
     save_folder : str
         Path to the folder where prepared csv files are stored.
+    dev_frac : float
+        Approximate fraction of speakers to assign to dev data in each grade.
+    test_frac : float
+        Approximate fraction of speakers to assign to test data in each grade.
     """
     # Setting file extension.
     extension = [".wav"]
@@ -66,16 +71,26 @@ def prepare_cslu(
     wav_lst_test = []
     for grade in grade_list:
         grade_dir = os.path.join(speech_dir, grade)
-        wav_lst = get_all_files(grade_dir, match_and=extension)
-        if grade in dev_grades:
-            wav_lst_dev.extend(wav_lst)
-        elif grade in test_grades:
-            wav_lst_test.extend(wav_lst)
-        else:
-            wav_lst_train.extend(wav_lst)
+
+        # Collect list of folders for distinct speakers
+        spk_list = sorted(glob(os.path.join(grade_dir, "*", "ks*")))
+
+        # Divide into sublists
+        dev_len = int(dev_frac * len(spk_list))
+        test_len = int(test_frac * len(spk_list))
+        dev_spk_list = spk_list[:dev_len]
+        test_spk_list = spk_list[dev_len:test_len]
+        train_spk_list = spk_list[dev_len + test_len:]
+
+        # Find files and add em
+        for folder in train_spk_list:
+            wav_lst_train.extend(get_all_files(folder, match_and=extension))
+        for folder in dev_spk_list:
+            wav_lst_dev.extend(get_all_files(folder, match_and=extension))
+        for folder in test_spk_list:
+            wav_lst_test.extend(get_all_files(folder, match_and=extension))
 
     # Create data maps
-    train_grades = set(grade_list) - set(dev_grades) - set(test_grades)
     id2chars = load_id2chars_map(data_folder)
     id2verify = load_id2verify_map(data_folder, grade_list)
 

@@ -177,13 +177,16 @@ class ASR(sb.core.Brain):
                 stage_stats["F1"] = f1 * 100
 
         if stage == sb.Stage.VALID:
-            old_lr, new_lr = self.hparams.lr_annealing(cer)
+            old_lr, new_lr = self.hparams.lr_annealing(f1)
             epoch_stats = {"epoch": epoch, "lr": old_lr}
             self.hparams.train_logger.log_stats(
                 epoch_stats, {"loss": self.train_loss}, stage_stats
             )
+            max_keys = None
+            if self.hparams.verify:
+                max_keys = ["F1"]
             self.checkpointer.save_and_keep_only(
-                meta={"CleanCER": clean_cer}, min_keys=["CleanCER"],
+                meta=stage_stats, min_keys=["CER"], max_keys=max_keys,
             )
         elif stage == sb.Stage.TEST:
             self.hparams.train_logger.log_stats(
@@ -230,6 +233,5 @@ if __name__ == "__main__":
         checkpointer=hparams["checkpointer"],
         device=hparams["device"],
     )
-    with torch.autograd.detect_anomaly():
-        asr_brain.fit(hparams["epoch_counter"], train_set, valid_set)
+    asr_brain.fit(hparams["epoch_counter"], train_set, valid_set)
     asr_brain.evaluate(hparams["test_loader"](), min_key="CleanCER")
