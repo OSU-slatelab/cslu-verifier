@@ -79,7 +79,7 @@ def prepare_cslu(
         dev_len = int(dev_frac * len(spk_list))
         test_len = int(test_frac * len(spk_list))
         dev_spk_list = spk_list[:dev_len]
-        test_spk_list = spk_list[dev_len:test_len]
+        test_spk_list = spk_list[dev_len:dev_len + test_len]
         train_spk_list = spk_list[dev_len + test_len:]
 
         # Find files and add em

@@ -172,19 +172,18 @@ class ASR(sb.core.Brain):
                 "CER": cer,
                 "CleanCER": clean_cer,
             }
+            max_keys = []
             if self.hparams.verify_weight > 0:
                 f1 = self.verify_metrics.summarize("F-score", threshold=0.5)
                 stage_stats["F1"] = f1 * 100
+                max_keys = ["F1"]
 
         if stage == sb.Stage.VALID:
-            old_lr, new_lr = self.hparams.lr_annealing(f1)
+            old_lr, new_lr = self.hparams.lr_annealing(cer)
             epoch_stats = {"epoch": epoch, "lr": old_lr}
             self.hparams.train_logger.log_stats(
                 epoch_stats, {"loss": self.train_loss}, stage_stats
             )
-            max_keys = None
-            if self.hparams.verify:
-                max_keys = ["F1"]
             self.checkpointer.save_and_keep_only(
                 meta=stage_stats, min_keys=["CER"], max_keys=max_keys,
             )
