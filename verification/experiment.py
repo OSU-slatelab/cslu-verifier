@@ -131,7 +131,7 @@ class ASR(sb.core.Brain):
         factor = factor.unsqueeze(-1).repeat(1, 1, output_count)
 
         # Flip factor for blank index
-        factor[blank_idx] *= -1
+        factor[:, :, blank_idx] *= -1
 
         # Function to compute loss using prediction and avg energy
         def loss_fn(prediction, factor):
