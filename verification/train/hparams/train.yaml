@@ -7,16 +7,16 @@
 # Seed needs to be set at top of yaml, before objects with parameters are made
 seed: 1234
 __set_seed: !!python/object/apply:torch.manual_seed [!ref <seed>]
-output_folder: !ref results/asr/<seed>
+output_folder: !ref results/verify/<seed>
 cer_file: !ref <output_folder>/cer.txt
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 
 # Data files
 data_folder: !PLACEHOLDER
-csv_train: !ref <data_folder>/train.csv
-csv_valid: !ref <data_folder>/dev.csv
-csv_test: !ref <data_folder>/test.csv
+train_annotation: !ref <data_folder>/train.json
+valid_annotation: !ref <data_folder>/valid.json
+test_annotation: !ref <data_folder>/test.json
 # print_id: ksd062p0
 
 # Training parameters
@@ -24,9 +24,15 @@ number_of_epochs: 50
 batch_size: 16
 lr: 1.0
 device: 'cuda:0'
-ctc_weight: 1.0
+ctc_weight: 0.0
 align_weight: 0.0
-verify_weight: 0.0
+verify_weight: 1.0
+train_loader_options:
+    batch_size: !ref <batch_size>
+valid_loader_options:
+    batch_size: !ref <batch_size>
+test_loader_options:
+    batch_size: !ref <batch_size>
 
 # Feature parameters
 sample_rate: 16000
@@ -57,43 +63,21 @@ verifier_dnn_size: 256
 verifier_dnn_layers: 2
 verifier_dropout: 0.1
 
-epoch_counter: !new:speechbrain.EpochCounter
+epoch_counter: !new:speechbrain.utils.epoch_loop.EpochCounter
     limit: !ref <number_of_epochs>
 
-train_loader: !new:speechbrain.data_io.DataLoaderFactory
-    csv_file: !ref <csv_train>
-    batch_size: !ref <batch_size>
-    sentence_sorting: ascending
-    output_folder: !ref <output_folder>
-    csv_read: [wav, char, verify]
-    avoid_if_longer_than: 7.5
+normalize: !new:speechbrain.processing.features.InputNormalization
 
-valid_loader: !new:speechbrain.data_io.DataLoaderFactory
-    csv_file: !ref <csv_valid>
-    batch_size: !ref <batch_size>
-    sentence_sorting: ascending
-    output_folder: !ref <output_folder>
-    csv_read: [wav, char, verify]
-
-test_loader: !new:speechbrain.data_io.DataLoaderFactory
-    csv_file: !ref <csv_test>
-    batch_size: !ref <batch_size>
-    sentence_sorting: ascending
-    output_folder: !ref <output_folder>
-    csv_read: [wav, char, verify]
-
-normalize: !new:speechbrain.processing.InputNormalization
-
-augmentation: !new:speechbrain.lobes.TimeDomainSpecAugment
+augmentation: !new:speechbrain.lobes.augment.TimeDomainSpecAugment
     sample_rate: !ref <sample_rate>
     speeds: [95, 100, 105]
 
-compute_features: !new:speechbrain.lobes.Fbank
+compute_features: !new:speechbrain.lobes.features.Fbank
     sample_rate: !ref <sample_rate>
     n_fft: !ref <n_fft>
     n_mels: !ref <n_mels>
 
-recognizer: !new:speechbrain.lobes.CRDNN
+recognizer: !new:speechbrain.lobes.models.CRDNN.CRDNN
     input_shape: [null, null, !ref <n_mels>]
     activation: !ref <activation>
     dropout: !ref <dropout>
@@ -102,14 +86,14 @@ recognizer: !new:speechbrain.lobes.CRDNN
     cnn_kernelsize: !ref <cnn_kernelsize>
     time_pooling: False
     using_2d_pooling: True
-    rnn_class: !name:speechbrain.nnet.LSTM
+    rnn_class: !name:speechbrain.nnet.RNN.LSTM
     rnn_layers: !ref <rnn_layers>
     rnn_neurons: !ref <rnn_neurons>
     rnn_bidirectional: !ref <rnn_bidirectional>
     dnn_blocks: !ref <dnn_blocks>
     dnn_neurons: !ref <dnn_neurons>
 
-recognizer_output: !new:speechbrain.nnet.Linear
+recognizer_output: !new:speechbrain.nnet.linear.Linear
     input_size: !ref <dnn_neurons>
     n_neurons: !ref <output_neurons>
     bias: True
@@ -117,7 +101,7 @@ recognizer_output: !new:speechbrain.nnet.Linear
 log_softmax: !new:speechbrain.nnet.activations.Softmax
     apply_log: True
 
-ctc_loss: !name:speechbrain.nnet.ctc_loss
+ctc_loss: !name:speechbrain.nnet.losses.ctc_loss
     blank_index: !ref <blank_index>
 
 verifier: !new:verifier.Verifier
@@ -134,7 +118,7 @@ verifier: !new:verifier.Verifier
     dnn_layers: !ref <verifier_dnn_layers>
     dnn_dropout: !ref <verifier_dropout>
 
-bce_loss: !name:speechbrain.nnet.BCE_loss
+bce_loss: !name:speechbrain.nnet.losses.BCE_loss
 
 modules:
     recognizer: !ref <recognizer>
@@ -147,13 +131,13 @@ opt_class: !name:torch.optim.Adadelta
     rho: 0.95
     eps: 1.e-8
 
-lr_annealing: !new:speechbrain.nnet.NewBobScheduler
+lr_annealing: !new:speechbrain.nnet.schedulers.NewBobScheduler
     initial_value: !ref <lr>
     improvement_threshold: 0.0025
     annealing_factor: 0.8
     patient: 0
 
-checkpointer: !new:speechbrain.Checkpointer
+checkpointer: !new:speechbrain.utils.checkpoints.Checkpointer
     checkpoints_dir: !ref <save_folder>
     recoverables:
         recognizer: !ref <recognizer>
@@ -163,8 +147,8 @@ checkpointer: !new:speechbrain.Checkpointer
         normalizer: !ref <normalize>
         counter: !ref <epoch_counter>
 
-train_logger: !new:speechbrain.FileTrainLogger
+train_logger: !new:speechbrain.utils.train_logger.FileTrainLogger
     save_file: !ref <train_log>
 
-cer_computer: !name:speechbrain.ErrorRateStats
-verify_computer: !name:speechbrain.BinaryMetricStats
+cer_computer: !name:speechbrain.utils.metric_stats.ErrorRateStats
+verify_computer: !name:speechbrain.utils.metric_stats.BinaryMetricStats

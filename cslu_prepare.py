@@ -7,36 +7,33 @@ Authors
 
 import os
 import re
-import csv
+import json
 import logging
 from glob import glob
 from speechbrain.utils.data_utils import get_all_files
-from speechbrain.data_io.data_io import read_wav_soundfile
+from speechbrain.dataio.dataio import read_audio
 
 logger = logging.getLogger(__name__)
-TRAIN_CSV = "train.csv"
-DEV_CSV = "dev.csv"
-TEST_CSV = "test.csv"
+TRAIN_FILE = "train.json"
+VALID_FILE = "valid.json"
+TEST_FILE = "test.json"
 SAMPLERATE = 16000
 
 
 def prepare_cslu(
-    data_folder,
-    save_folder,
-    dev_frac=0.05,
-    test_frac=0.05,
+    data_folder, save_folder, valid_frac=0.05, test_frac=0.05,
 ):
     """
-    Prepares the csv files for the CSLU dataset.
+    Prepares the json files for the CSLU dataset.
 
     Arguments
     ---------
     data_folder : str
         Path to the folder where the original CSLU dataset is stored.
     save_folder : str
-        Path to the folder where prepared csv files are stored.
-    dev_frac : float
-        Approximate fraction of speakers to assign to dev data in each grade.
+        Path to the folder where prepared json files are stored.
+    valid_frac : float
+        Approximate fraction of speakers to assign to valid data in each grade.
     test_frac : float
         Approximate fraction of speakers to assign to test data in each grade.
     """
@@ -48,26 +45,24 @@ def prepare_cslu(
         os.makedirs(save_folder)
 
     # Setting ouput files
-    save_csv_train = os.path.join(save_folder, TRAIN_CSV)
-    save_csv_dev = os.path.join(save_folder, DEV_CSV)
-    save_csv_test = os.path.join(save_folder, TEST_CSV)
+    save_train_file = os.path.join(save_folder, TRAIN_FILE)
+    save_valid_file = os.path.join(save_folder, VALID_FILE)
+    save_test_file = os.path.join(save_folder, TEST_FILE)
 
     # Check if this phase is already done (if so, skip it)
     if skip(save_folder):
         logger.debug("Skipping preparation, completed in previous run.")
         return
 
-    msg = "\tCreating csv file for the CSLU Dataset.."
+    msg = "\tCreating json file for the CSLU Dataset.."
     logger.debug(msg)
 
     speech_dir = os.path.join(data_folder, "speech", "scripted")
-    grade_list = [
-        "00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10"
-    ]
+    grade_list = ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10"]
 
-    # Creating csv file for training data
+    # Creating json file for training data
     wav_lst_train = []
-    wav_lst_dev = []
+    wav_lst_valid = []
     wav_lst_test = []
     for grade in grade_list:
         grade_dir = os.path.join(speech_dir, grade)
@@ -76,17 +71,17 @@ def prepare_cslu(
         spk_list = sorted(glob(os.path.join(grade_dir, "*", "ks*")))
 
         # Divide into sublists
-        dev_len = int(dev_frac * len(spk_list))
+        valid_len = int(valid_frac * len(spk_list))
         test_len = int(test_frac * len(spk_list))
-        dev_spk_list = spk_list[:dev_len]
-        test_spk_list = spk_list[dev_len:dev_len + test_len]
-        train_spk_list = spk_list[dev_len + test_len:]
+        valid_spk_list = spk_list[:valid_len]
+        test_spk_list = spk_list[valid_len : valid_len + test_len]
+        train_spk_list = spk_list[valid_len + test_len :]
 
         # Find files and add em
         for folder in train_spk_list:
             wav_lst_train.extend(get_all_files(folder, match_and=extension))
-        for folder in dev_spk_list:
-            wav_lst_dev.extend(get_all_files(folder, match_and=extension))
+        for folder in valid_spk_list:
+            wav_lst_valid.extend(get_all_files(folder, match_and=extension))
         for folder in test_spk_list:
             wav_lst_test.extend(get_all_files(folder, match_and=extension))
 
@@ -94,10 +89,11 @@ def prepare_cslu(
     id2chars = load_id2chars_map(data_folder)
     id2verify = load_id2verify_map(data_folder, grade_list)
 
-    # Create csv with all files
-    create_csv(wav_lst_train, save_csv_train, id2chars, id2verify)
-    create_csv(wav_lst_dev, save_csv_dev, id2chars, id2verify)
-    create_csv(wav_lst_test, save_csv_test, id2chars, id2verify)
+    # Create json with all files
+    create_json(wav_lst_train, save_train_file, id2chars, id2verify)
+    create_json(wav_lst_valid, save_valid_file, id2chars, id2verify)
+    create_json(wav_lst_test, save_test_file, id2chars, id2verify)
+
 
 def skip(save_folder):
     """
@@ -110,14 +106,15 @@ def skip(save_folder):
         if True, the preparation phase can be skipped.
         if False, it must be done.
     """
-    # Checking csv files
+    # Checking json files
     skip = True
 
-    for csv in [TRAIN_CSV, DEV_CSV, TEST_CSV]:
-        if not os.path.isfile(os.path.join(save_folder, csv)):
+    for json in [TRAIN_FILE, VALID_FILE, TEST_FILE]:
+        if not os.path.isfile(os.path.join(save_folder, json)):
             skip = False
 
     return skip
+
 
 def load_id2chars_map(data_folder):
     """Load map from word id to characters"""
@@ -131,7 +128,7 @@ def load_id2chars_map(data_folder):
 
         # Normalize
         words = " ".join(line[1:]).lower()
-        words = re.sub(r'[^a-z ]', '', words).replace(" ", "_")
+        words = re.sub(r"[^a-z ]", "", words).replace(" ", "_")
 
         # Split into chars, merging double letters.
         chars = []
@@ -146,6 +143,7 @@ def load_id2chars_map(data_folder):
 
     return id2chars
 
+
 def load_id2verify_map(data_folder, grades):
     id2verify = {}
     for grade in grades:
@@ -153,20 +151,21 @@ def load_id2verify_map(data_folder, grades):
         for line in open(verify_file):
             filename, verify = line.split()
             utterance_id = filename[-12:-4]
-            id2verify[utterance_id] = verify
+            id2verify[utterance_id] = int(verify)
 
     return id2verify
 
-def create_csv(wav_lst, csv_file, id2chars, id2verify):
+
+def create_json(wav_lst, json_file, id2chars, id2verify):
     """
-    Creates the csv file given a list of wav files.
+    Creates the json file given a list of wav files.
 
     Arguments
     ---------
     wav_lst : list
         The list of wav files of a given data split.
-    csv_file : str
-        The path of the output csv file
+    json_file : str
+        The path of the output json file
     id2chars : dict
         A mapping from word id to characters
     id2verify : dict
@@ -174,63 +173,41 @@ def create_csv(wav_lst, csv_file, id2chars, id2verify):
     """
 
     # Adding some Prints
-    msg = '\t"Creating csv lists in  %s..."' % (csv_file)
+    msg = '\t"Creating json lists in  %s..."' % (json_file)
     logger.debug(msg)
 
-    csv_lines = [
-        [
-            "ID",
-            "duration",
-            "wav",
-            "wav_format",
-            "wav_opts",
-            "char",
-            "char_format",
-            "char_opts",
-            "verify",
-            "verify_format",
-            "verify_opts",
-        ]
-    ]
+    json_dict = {}
 
     # Processing all the wav files in the list
     for wav_file in wav_lst:
 
+        path = os.path.normpath(wav_file).split(os.path.sep)
+        relative_filename = os.path.join("{root}", *path[-6:])
+
         # Reading the signal (to retrieve duration in seconds)
-        signal = read_wav_soundfile(wav_file)
-        duration = str(signal.shape[0] / SAMPLERATE)
+        signal = read_audio(wav_file)
+        duration = signal.shape[0] / SAMPLERATE
 
         # Find character targets
         snt_id = wav_file[-12:-4]
         word_id = wav_file[-7:-5].upper()
         chars = id2chars[word_id]
 
-        # Composition of the csv_line
-        csv_line = [
-            snt_id, duration, wav_file, "wav", "", chars, "string", "",
-        ]
-
         # Verify = 0 means there is no label for this example
-        #verify = "0" if snt_id not in id2verify else id2verify[snt_id]
+        # verify = "0" if snt_id not in id2verify else id2verify[snt_id]
         if snt_id not in id2verify:
             continue
         else:
-            csv_line.extend([id2verify[snt_id], "string", "label:False"])
-            csv_lines.append(csv_line)
+            json_dict[snt_id] = {
+                "wav": relative_filename,
+                "length": duration,
+                "char": chars,
+                "verify": id2verify[snt_id],
+            }
 
-    # Writing the csv lines
-    _write_csv(csv_lines, csv_file)
-    msg = "\t%s sucessfully created!" % (csv_file)
+    # Writing the json lines
+    with open(json_file, mode="w") as json_f:
+        json.dump(json_dict, json_f, indent=1)
+
+    msg = "\t%s sucessfully created!" % (json_file)
     logger.debug(msg)
-
-def _write_csv(csv_lines, csv_file):
-    """
-    Writes on the specified csv_file the given csv_files.
-    """
-    with open(csv_file, mode="w") as csv_f:
-        csv_writer = csv.writer(
-            csv_f, delimiter=",", quotechar='"', quoting=csv.QUOTE_MINIMAL
-        )
-
-        for line in csv_lines:
-            csv_writer.writerow(line)
