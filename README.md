@@ -35,5 +35,7 @@ between evidence and posterior, as outlined in [1].
 The verify weight can be used to train a model to make predictions about whether each
 utterance has an anomaly, based on the recording quality labels provided in the CSLU data.
 
+## References
+
 [1] Peter Plantinga and Eric Fosler-Lussier, "Towards Real-Time Mispronunciation Detection in Kids’ Speech",
 ASRU 2019, [https://arxiv.org/abs/2003.01765](https://arxiv.org/abs/2003.01765).
