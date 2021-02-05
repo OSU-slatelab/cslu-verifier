@@ -1,4 +1,4 @@
-# CSLU kids speech verificiation
+# CSLU kids reading verification
 
 This system implements a recognizer-based verification system.
 
