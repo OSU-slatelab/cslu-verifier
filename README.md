@@ -7,10 +7,10 @@ This will change when the toolkit is released soon, but for now it can be instal
 from test PyPI using the following command:
 
 ```
-pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple BeechSprain
+pip install speechbrain
 ```
 
-Next, ensure you have access to the CSLU kids speech repository, say in `/path/to/cslu_kids`
+Next, ensure you have access to the OGI kids' speech repository, say in `/path/to/cslu_kids`
 
 You can run an experiment with:
 
@@ -30,12 +30,20 @@ verify_weight: 1.0
 ```
 
 The ctc and align weight (together) can be used to train a system with reasonable alignments
-between evidence and posterior, as outlined in [1].
+between evidence and posterior, as outlined in our paper (see citation below).
 
 The verify weight can be used to train a model to make predictions about whether each
 utterance has an anomaly, based on the recording quality labels provided in the CSLU data.
 
-## References
+## Citation
 
-[1] Peter Plantinga and Eric Fosler-Lussier, "Towards Real-Time Mispronunciation Detection in Kids’ Speech",
-ASRU 2019, [https://arxiv.org/abs/2003.01765](https://arxiv.org/abs/2003.01765).
+```
+@inproceedings{plantinga2019towards,
+  title={Towards Real-Time Mispronunciation Detection in Kids' Speech},
+  author={Plantinga, Peter and Fosler-Lussier, Eric},
+  booktitle={2019 IEEE Automatic Speech Recognition and Understanding Workshop (ASRU)},
+  pages={690--696},
+  year={2019},
+  organization={IEEE}
+}
+```
